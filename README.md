@@ -56,8 +56,16 @@ pozisyon **~116 USDT**" der ve altındaki işlemleri reddeder. Sabit değilse
 `flat_fee_usd: 0.0` bırak, normal %0.05 hesabı yapar.
 
 **3) Bu bot varsayılan olarak GERÇEK PARA KULLANMAZ.** `paper` (kâğıt) modunda başlar,
-sanal işlem yapar. Gerçek paraya geçmek için ayarı bilerek değiştirmen ve onay yazman
-gerekir. Önce en az **1 ay** kâğıt modda çalıştır, sonuçlara bak, ondan sonra karar ver.
+sanal işlem yapar. Borsaya emir gönderen her fonksiyon (`market_order`, `stop_order`,
+`take_profit_order`, `set_leverage`, `cancel_all`) istisnasız `mode == "live"` kontrolünün
+içindedir; `paper` ve `signal` modlarında o koda hiç girilmez. Bu bir yorum değil, testle
+sabitlenmiş bir garanti: `OrderTripwire` testi emir fonksiyonlarını "dokunulursa patlayan"
+tuzağa çevirir ve tam bir işlem döngüsü çalıştırır — biri çağrılırsa test kırılır.
+
+Gerçek paraya geçmek için üç ayrı engeli aşman gerekir: modu bilerek `live` yapmak,
+geçerli API anahtarı tanımlamak (doğrulama anahtarsız `live`'a izin vermez) ve bot
+başlarken klavyeden büyük harfle `ONAYLIYORUM` yazmak. Önce en az **1 ay** kâğıt modda
+çalıştır, sonuçlara bak, ondan sonra karar ver.
 
 ---
 
@@ -395,7 +403,7 @@ bot/
   notifier.py     CMD çıktısı, log, ses, opsiyonel Telegram
   configedit.py   ayarları yorumları bozmadan değiştirme
   cli.py          komut satırı
-tests/           135 test
+tests/           138 test
 ```
 
 Backtest, canlı botla **aynı** strateji ve risk kodunu çağırır — bu yüzden test sonucu

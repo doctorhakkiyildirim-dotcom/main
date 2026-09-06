@@ -225,3 +225,64 @@ def test_full_cycle_runs_with_console_output_enabled(cfg, capsys):
         engine.tick()
         ex.advance()
     assert capsys.readouterr().out.strip(), "konsol acikken bot ciktı vermeli"
+
+
+class OrderTripwire(FakeExchange):
+    """Emir gonderen her fonksiyonu patlayan tuzaga cevirir.
+
+    Bu sinifin varlik sebebi tek bir soruyu kesin yanitlamak: paper/signal
+    modunda bot Binance'e GERCEKTEN emir gonderebilir mi? Gonderirse test
+    patlar.
+    """
+
+    def _tripwire(self, name):
+        raise AssertionError(
+            f"GERCEK PARA RISKI: paper/signal modunda {name} cagrildi!"
+        )
+
+    def set_leverage(self, *a, **k):
+        self._tripwire("set_leverage")
+
+    def market_order(self, *a, **k):
+        self._tripwire("market_order")
+
+    def stop_order(self, *a, **k):
+        self._tripwire("stop_order")
+
+    def take_profit_order(self, *a, **k):
+        self._tripwire("take_profit_order")
+
+    def cancel_all(self, *a, **k):
+        self._tripwire("cancel_all")
+
+
+def run_with_tripwire(cfg, steps=500):
+    ex = OrderTripwire(["AAA/USDT", "BBB/USDT", "CCC/USDT"])
+    engine = Engine(cfg, exchange=ex, notifier=Notifier(cfg))
+    for _ in range(steps):
+        engine.tick()
+        ex.advance()
+    return engine
+
+
+@pytest.mark.parametrize("mode", ["paper", "signal"])
+def test_no_order_ever_reaches_the_exchange_outside_live_mode(cfg, mode):
+    """paper ve signal modlarinda borsaya TEK BIR emir bile gitmemeli."""
+    cfg["execution"]["mode"] = mode
+    engine = run_with_tripwire(cfg)
+    if mode == "paper":
+        assert engine.state.data["closed_trades"] or engine.state.data["positions"], (
+            "test anlamli olmasi icin en az bir sanal islem yapilmis olmali"
+        )
+
+
+def test_paper_mode_still_simulates_trades_fully(cfg):
+    """Emir gitmiyor ama muhasebe tam calisiyor olmali."""
+    cfg["execution"]["mode"] = "paper"
+    engine = run_with_tripwire(cfg)
+    trades = engine.state.data["closed_trades"]
+    assert trades, "paper modda sanal islem bekleniyor"
+    assert all(t["mode"] == "paper" for t in trades)
+    assert engine.state.equity == pytest.approx(
+        1000.0 + sum(t["net_usd"] for t in trades), rel=1e-9
+    )
