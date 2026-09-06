@@ -34,7 +34,7 @@ class Notifier:
     def _print(self, *args, **kwargs) -> None:
         """notify.console kapaliysa ekrana hicbir sey basma (log yine tutulur)."""
         if self.to_console:
-            self._print(*args, **kwargs)
+            console.print(*args, **kwargs)
 
     # ------------------------------------------------------------- yardimci
 

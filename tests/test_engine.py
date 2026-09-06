@@ -214,3 +214,14 @@ def test_rounded_position_below_exchange_minimum_is_rejected(cfg):
     ex.min_notional_value = plan.notional * 2         # borsa alt sinirini yukseltti
     reason = engine._not_executable(plan)
     assert reason is not None and "alt siniri" in reason
+
+
+def test_full_cycle_runs_with_console_output_enabled(cfg, capsys):
+    """`baslat.bat` yolunun aynisi: konsol acikken tam dongu."""
+    cfg["notify"]["console"] = True
+    engine, ex = build(cfg)
+    engine.note.banner(["test"])
+    for _ in range(120):
+        engine.tick()
+        ex.advance()
+    assert capsys.readouterr().out.strip(), "konsol acikken bot ciktı vermeli"
