@@ -156,3 +156,39 @@ def test_cooldown_blocks_then_expires(tmp_path):
     assert state.in_cooldown("BTC/USDT", "2025-01-01T12:00:00+00:00")
     assert not state.in_cooldown("BTC/USDT", "2025-01-03T00:00:00+00:00")
     assert not state.in_cooldown("ETH/USDT", "2025-01-01T12:00:00+00:00")
+
+
+# ----------------------------------------------------------- CSV yol acilimi
+
+def test_csv_paths_accept_files_folders_and_wildcards(tmp_path):
+    """PowerShell jokerleri acmadan gecirir; genisletmeyi bot yapmali."""
+    from bot.cli import expand_csv_paths
+
+    data = tmp_path / "data"
+    data.mkdir()
+    for name in ("SOL_USDT_4h.csv", "AVAX_USDT_4h.csv"):
+        (data / name).write_text("timestamp,open,high,low,close,volume\n", encoding="utf-8")
+    (data / "notlar.txt").write_text("csv degil", encoding="utf-8")
+
+    from_folder = expand_csv_paths([str(data)])
+    from_glob = expand_csv_paths([str(data / "*.csv")])
+    from_files = expand_csv_paths([str(data / "SOL_USDT_4h.csv")])
+
+    assert [p.name for p in from_folder] == ["AVAX_USDT_4h.csv", "SOL_USDT_4h.csv"]
+    assert from_glob == from_folder
+    assert [p.name for p in from_files] == ["SOL_USDT_4h.csv"]
+
+
+def test_csv_paths_do_not_repeat_the_same_file(tmp_path):
+    from bot.cli import expand_csv_paths
+
+    path = tmp_path / "SOL_USDT_4h.csv"
+    path.write_text("timestamp,open,high,low,close,volume\n", encoding="utf-8")
+    assert len(expand_csv_paths([str(path), str(tmp_path / "*.csv"), str(tmp_path)])) == 1
+
+
+def test_missing_csv_tells_the_user_how_to_get_data(tmp_path):
+    from bot.cli import expand_csv_paths
+
+    with pytest.raises(ConfigError, match="run.py fetch"):
+        expand_csv_paths([str(tmp_path / "yok" / "*.csv")])

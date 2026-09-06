@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import glob as globmod
 import sys
 from pathlib import Path
 
@@ -25,6 +26,37 @@ console = Console()
 
 # --------------------------------------------------------------------- yardim
 
+def expand_csv_paths(patterns: list[str]) -> list[Path]:
+    """Dosya, klasor veya joker (*) kaliplarini gercek dosya listesine cevir.
+
+    PowerShell joker karakterleri programa ACMADAN aktarir, cmd.exe ise hic
+    genisletmez. Bu yuzden genisletmeyi botun kendisi yapar; boylece
+    `--csv data`, `--csv data/*.csv` ve `--csv a.csv b.csv` hepsi calisir.
+    """
+    found: list[Path] = []
+    for pattern in patterns:
+        candidate = Path(pattern)
+        if candidate.is_dir():
+            matches = sorted(candidate.glob("*.csv"))
+        else:
+            matches = sorted(Path(m) for m in globmod.glob(pattern))
+        if not matches:
+            raise ConfigError(
+                f"'{pattern}' ile eslesen CSV dosyasi yok. "
+                f"Once veriyi indir:  python run.py fetch"
+            )
+        found.extend(matches)
+
+    unique: list[Path] = []
+    seen: set[Path] = set()
+    for path in found:
+        key = path.resolve()
+        if key not in seen:
+            seen.add(key)
+            unique.append(path)
+    return unique
+
+
 def _engine(args):
     """Motoru kur (gec ice aktarma: 'backtest' icin borsa baglantisi gerekmez)."""
     from .engine import Engine
@@ -35,6 +67,21 @@ def _engine(args):
     if getattr(args, "equity", None):
         cfg["risk"]["equity_usd"] = float(args.equity)
     return Engine(cfg)
+
+
+def _warn_if_testnet_data(cfg: dict) -> None:
+    """Testnet fiyat verisi GERCEK piyasa degildir — analiz icin kullanilamaz.
+
+    Testnet'in mum verisi seyrek ve yapaydir; oradan alinan backtest sonucu
+    hicbir sey ifade etmez. Emir denemek icin testnet dogru yer, veri icin degil.
+    """
+    if cfg["exchange"]["testnet"]:
+        console.print(
+            "[bold yellow]DIKKAT:[/bold yellow] testnet acik. Testnet fiyat verisi "
+            "gercek piyasa degildir; buradan cikan sonuc yanittir.\n"
+            "config.yaml icinde [bold]testnet: false[/bold] yap "
+            "(paper modda emir GONDERILMEZ, sadece gercek fiyat okunur).\n"
+        )
 
 
 def _confirm_live(cfg: dict, yes: bool) -> bool:
@@ -122,6 +169,7 @@ def cmd_doctor(args) -> int:
 def cmd_scan(args) -> int:
     """Tek seferlik tarama — sinyalleri ekrana bas, islem acma."""
     engine = _engine(args)
+    _warn_if_testnet_data(engine.cfg)
     engine.note.banner(summary_lines(engine.cfg) + ["Tek seferlik tarama"])
     symbols = args.symbols or None
     plans = engine.scan(symbols=symbols)
@@ -257,11 +305,14 @@ def cmd_backtest(args) -> int:
 
     frames: dict[str, pd.DataFrame] = {}
     if args.csv:
-        for path in args.csv:
+        paths = expand_csv_paths(args.csv)
+        console.print(f"[dim]{len(paths)} CSV dosyasi okunuyor[/dim]")
+        for path in paths:
             ltf = load_csv(path, cfg["timeframes"]["signal"])
             htf = resample(ltf, cfg["timeframes"]["trend"])
-            frames[Path(path).stem] = build_features(ltf, htf, cfg["strategy"])
+            frames[path.stem] = build_features(ltf, htf, cfg["strategy"])
     else:
+        _warn_if_testnet_data(cfg)
         ex = Exchange(cfg)
         symbols = args.symbols or ex.discover_universe()[: args.top]
         console.print(f"[dim]Veri cekiliyor: {', '.join(symbols)}[/dim]")
@@ -284,6 +335,7 @@ def cmd_backtest(args) -> int:
 def cmd_fetch(args) -> int:
     """Gecmis mum verisini CSV olarak indir — sonra internetsiz backtest yapilir."""
     cfg = load_config(args.config)
+    _warn_if_testnet_data(cfg)
     ex = Exchange(cfg)
     timeframe = cfg["timeframes"]["signal"]
     symbols = args.symbols or ex.discover_universe()[: args.top]
@@ -383,7 +435,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--top", type=int, default=8, help="auto listeden kac parite")
     p.add_argument("--bars", type=int, default=2000, help="sinyal zaman diliminde bar sayisi")
     p.add_argument("--equity", type=float)
-    p.add_argument("--csv", nargs="*", help="borsa yerine CSV dosyalari kullan")
+    p.add_argument("--csv", nargs="*",
+                   help="borsa yerine CSV kullan: dosya, klasor veya joker (data, data/*.csv)")
     p.add_argument("--trades", type=int, default=0, help="son N islemi listele")
     p.add_argument("--no-compound", action="store_true", help="sabit pozisyon boyutu")
     p.set_defaults(func=cmd_backtest)

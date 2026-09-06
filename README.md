@@ -61,7 +61,25 @@ gerekir. Önce en az **1 ay** kâğıt modda çalıştır, sonuçlara bak, ondan
 
 ---
 
-## 1. Kurulum (Windows / Linux / Mac)
+## 1. Kurulum
+
+### Windows — en kolay yol (çift tıkla)
+
+Depoyu indirdikten sonra klasördeki dosyalara sırayla çift tıkla:
+
+| Dosya | Ne yapar |
+|---|---|
+| `kur.bat` | Python'u bulur, sanal ortamı kurar, kütüphaneleri yükler, `config.yaml` oluşturur |
+| `ayarlari-kontrol-et.bat` | Ayarları, borsa bağlantısını ve API anahtarını denetler |
+| `veri-indir.bat` | Backtest için geçmiş veriyi `data/` klasörüne indirir |
+| `test-et.bat` | İndirilen veriyle stratejiyi test eder |
+| `baslat.bat` | Botu sürekli çalıştırır |
+| `durum.bat` | Açık pozisyonları ve performansı gösterir |
+
+**Önce `kur.bat`.** Bu adım atlanırsa `No module named 'rich'` hatası alırsın — o hata
+"kütüphaneler kurulmamış" demektir, kodda sorun olduğu anlamına gelmez.
+
+### Elle kurulum (Windows / Linux / Mac)
 
 Python 3.10+ gerekir. [python.org](https://www.python.org/downloads/) — kurulumda
 **"Add Python to PATH"** kutusunu işaretle.
@@ -71,10 +89,24 @@ git clone https://github.com/doctorhakkiyildirim-dotcom/main.git swingbot
 cd swingbot
 
 python -m venv .venv
-.venv\Scripts\activate            :: Linux/Mac:  source .venv/bin/activate
+.venv\Scripts\python.exe -m pip install -r requirements.txt
+copy config.example.yaml config.yaml
+```
 
-pip install -r requirements.txt
-copy config.example.yaml config.yaml    :: Linux/Mac:  cp config.example.yaml config.yaml
+Linux/Mac:
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+cp config.example.yaml config.yaml
+```
+
+**PowerShell notu:** `.venv\Scripts\activate` bazı makinelerde `ExecutionPolicy`
+hatası verir. Yukarıdaki gibi doğrudan `.venv\Scripts\python.exe` çağırırsan
+aktivasyona hiç gerek kalmaz — bütün komutlarda `python` yerine bunu kullan:
+
+```powershell
+.venv\Scripts\python.exe run.py doctor
 ```
 
 Hemen doğrula — bu komut borsaya bağlanmadan tüm mantığı test eder:
