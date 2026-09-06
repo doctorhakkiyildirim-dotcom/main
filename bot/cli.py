@@ -15,6 +15,7 @@ from rich.table import Table
 from . import __version__
 from .backtest import BacktestResult, prepare_frames, run_backtest
 from .config import ConfigError, load_config, summary_lines
+from .configedit import ConfigEditError, apply_changes, read_scalar
 from .datafeed import load_csv, resample, save_csv, synthetic
 from .exchange import Exchange, ExchangeError
 from .risk import ExitEvent, min_notional_for_fee_ratio, round_fees
@@ -101,6 +102,158 @@ def _confirm_live(cfg: dict, yes: bool) -> bool:
 
 
 # -------------------------------------------------------------------- komutlar
+
+def _ask(question: str, current: str | None) -> str:
+    """Soruyu sor; bos birakilirsa mevcut deger korunur."""
+    suffix = f" [{current}]" if current is not None else ""
+    answer = input(f"  {question}{suffix}: ").strip()
+    return answer or (current or "")
+
+
+def _ask_yes_no(question: str, current: bool) -> bool:
+    """Evet/hayir sorusu — 'e', 'evet', 'y', 'yes' olumlu sayilir."""
+    default = "evet" if current else "hayir"
+    while True:
+        answer = input(f"  {question} (evet/hayir) [{default}]: ").strip().lower()
+        if not answer:
+            return current
+        if answer in ("e", "evet", "y", "yes", "true"):
+            return True
+        if answer in ("h", "hayir", "hayır", "n", "no", "false"):
+            return False
+        console.print("    [yellow]Lutfen 'evet' veya 'hayir' yaz.[/yellow]")
+
+
+def _ask_number(question: str, current: str | None, minimum: float, maximum: float) -> float:
+    """Sayi sorusu — aralik disi ve gecersiz girdilerde tekrar sorar."""
+    while True:
+        raw = _ask(question, current).replace(",", ".")
+        try:
+            value = float(raw)
+        except ValueError:
+            console.print("    [yellow]Sayi yaz (ornek: 3 veya 3.5).[/yellow]")
+            continue
+        if not minimum <= value <= maximum:
+            console.print(f"    [yellow]{minimum:g} ile {maximum:g} arasinda olmali.[/yellow]")
+            continue
+        return value
+
+
+def cmd_setup(args) -> int:
+    """Ayarlari soru-cevap ile yaz — config.yaml'i elle duzenlemeye gerek kalmasin."""
+    path = Path(args.config)
+    if not path.exists():
+        example = Path("config.example.yaml")
+        if not example.exists():
+            console.print(f"[red]{path} yok ve config.example.yaml da bulunamadi.[/red]")
+            return 1
+        path.write_text(example.read_text(encoding="utf-8"), encoding="utf-8")
+        console.print(f"[dim]{path} olusturuldu.[/dim]")
+
+    original = path.read_text(encoding="utf-8")
+    changes: dict[tuple[str, str], object] = {}
+    flags_given = any(
+        getattr(args, name) is not None
+        for name in ("equity", "testnet", "mode", "risk", "max_leverage")
+    )
+
+    if flags_given:
+        if args.equity is not None:
+            changes[("risk", "equity_usd")] = float(args.equity)
+        if args.testnet is not None:
+            changes[("exchange", "testnet")] = args.testnet
+        if args.mode is not None:
+            changes[("execution", "mode")] = args.mode
+        if args.risk is not None:
+            changes[("risk", "risk_per_trade_pct")] = float(args.risk)
+        if args.max_leverage is not None:
+            changes[("risk", "max_leverage")] = int(args.max_leverage)
+    else:
+        console.print(
+            "\n[bold cyan]AYARLAR[/bold cyan]  "
+            "[dim](Enter'a basarsan mevcut deger kalir)[/dim]\n"
+        )
+        equity = _ask_number(
+            "Hesabindaki gercek para (USDT)",
+            read_scalar(original, "risk", "equity_usd"), 0.5, 1_000_000,
+        )
+        risk = _ask_number(
+            "Islem basina risk yuzdesi",
+            read_scalar(original, "risk", "risk_per_trade_pct"), 0.5, 100,
+        )
+        leverage = _ask_number(
+            "En yuksek kaldirac",
+            read_scalar(original, "risk", "max_leverage"), 1, 50,
+        )
+
+        console.print(
+            "\n  [dim]Testnet, Binance'in sahte para ile emir denemek icin actigi "
+            "AYRI bir sistemdir.\n"
+            "  Fiyat verisi gercek piyasayi yansitmaz ve kendi ayri API "
+            "anahtarlarini ister.\n"
+            "  Gercek fiyatlarla calismak icin 'hayir' de.[/dim]"
+        )
+        testnet = _ask_yes_no(
+            "Testnet kullanilsin mi",
+            str(read_scalar(original, "exchange", "testnet")).lower() == "true",
+        )
+
+        console.print(
+            "\n  [dim]signal = sadece uyari verir  |  paper = sanal islem "
+            "(GERCEK EMIR YOK)  |  live = gercek para[/dim]"
+        )
+        current_mode = read_scalar(original, "execution", "mode") or "paper"
+        while True:
+            mode = _ask("Mod (signal/paper/live)", current_mode).lower()
+            if mode in ("signal", "paper", "live"):
+                break
+            console.print("    [yellow]signal, paper veya live yaz.[/yellow]")
+
+        changes = {
+            ("risk", "equity_usd"): equity,
+            ("risk", "risk_per_trade_pct"): risk,
+            ("risk", "max_leverage"): int(leverage),
+            ("exchange", "testnet"): testnet,
+            ("execution", "mode"): mode,
+        }
+
+    if not changes:
+        console.print("[yellow]Degistirilecek bir sey verilmedi.[/yellow]")
+        return 0
+
+    try:
+        summary = apply_changes(path, changes)
+    except ConfigEditError as exc:
+        console.print(f"[red]Ayar yazilamadi:[/red] {exc}")
+        return 1
+
+    # Yazdiktan sonra dosya hala gecerli mi — degilse eski haline dondur
+    try:
+        cfg = load_config(path)
+    except ConfigError as exc:
+        path.write_text(original, encoding="utf-8")
+        console.print(f"[red]Bu ayarlar gecersiz, degisiklik geri alindi:[/red] {exc}")
+        return 1
+
+    console.print("\n[green]Kaydedildi:[/green]")
+    for line in summary or ["(degisiklik yok)"]:
+        console.print(f"  {line}")
+    console.print()
+    for line in summary_lines(cfg):
+        console.print(f"  {line}")
+
+    if cfg["exchange"]["testnet"] and cfg["execution"]["mode"] != "live":
+        console.print(
+            "\n[yellow]Not:[/yellow] testnet acik kaldi — okunan fiyatlar gercek "
+            "piyasa degil."
+        )
+    if cfg["execution"]["mode"] == "paper":
+        console.print(
+            "\n[dim]Mod 'paper': bot GERCEK EMIR GONDERMEZ, sadece sanal islem yapar.[/dim]"
+        )
+    console.print("\n[bold]Siradaki adim:[/bold] ayarlari-kontrol-et.bat  ->  baslat.bat")
+    return 0
+
 
 def cmd_doctor(args) -> int:
     """Yapilandirmayi, baglantiyi ve ucret mantigini kontrol et."""
@@ -442,6 +595,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"swingbot {__version__}")
     parser.add_argument("-c", "--config", default="config.yaml", help="yapilandirma dosyasi")
     sub = parser.add_subparsers(dest="command", required=True)
+
+    p = sub.add_parser("ayarla", aliases=["setup"],
+                       help="ayarlari soru-cevap ile yaz (config.yaml'i elle acmadan)")
+    p.add_argument("--equity", type=float, help="sermaye (USDT)")
+    p.add_argument("--risk", type=float, help="islem basina risk yuzdesi")
+    p.add_argument("--max-leverage", type=int, dest="max_leverage")
+    p.add_argument("--mode", choices=["signal", "paper", "live"])
+    testnet_group = p.add_mutually_exclusive_group()
+    testnet_group.add_argument("--testnet", dest="testnet", action="store_true", default=None)
+    testnet_group.add_argument("--no-testnet", dest="testnet", action="store_false", default=None)
+    p.set_defaults(func=cmd_setup)
 
     p = sub.add_parser("doctor", help="ayarlari ve baglantiyi kontrol et")
     p.set_defaults(func=cmd_doctor)

@@ -47,14 +47,23 @@ if not exist "config.yaml" (
 )
 
 echo.
-echo Kurulum tamam. Kod testi calistiriliyor...
+echo Kod testi calistiriliyor...
 echo.
 ".venv\Scripts\python.exe" run.py selftest --bars 1500 --symbols-count 2
 
 echo.
 echo ==========================================================
-echo   SIRADAKI ADIM: config.yaml dosyasini duzenle,
-echo   sonra  ayarlari-kontrol-et.bat  calistir.
+echo   Simdi birkac ayar sorusu soracak.
+echo   Bilmedigin yerde Enter'a bas, varsayilan kalir.
+echo ==========================================================
+echo.
+".venv\Scripts\python.exe" run.py ayarla
+
+echo.
+echo ==========================================================
+echo   Kurulum tamam.
+echo   SIRADAKI ADIM:  ayarlari-kontrol-et.bat
+echo   Ayarlari sonra degistirmek istersen:  ayarla.bat
 echo ==========================================================
 pause
 exit /b 0

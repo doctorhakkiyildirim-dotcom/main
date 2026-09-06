@@ -69,7 +69,8 @@ Depoyu indirdikten sonra klasördeki dosyalara sırayla çift tıkla:
 
 | Dosya | Ne yapar |
 |---|---|
-| `kur.bat` | Python'u bulur, sanal ortamı kurar, kütüphaneleri yükler, `config.yaml` oluşturur |
+| `kur.bat` | Python'u bulur, sanal ortamı kurar, kütüphaneleri yükler, sonunda ayar sorularını sorar |
+| `ayarla.bat` | Ayarları soru-cevap ile değiştirir — `config.yaml`'ı elle açmana gerek yok |
 | `ayarlari-kontrol-et.bat` | Ayarları, borsa bağlantısını ve API anahtarını denetler |
 | `veri-indir.bat` | Backtest için geçmiş veriyi `data/` klasörüne indirir |
 | `test-et.bat` | İndirilen veriyle stratejiyi test eder |
@@ -122,13 +123,26 @@ python run.py selftest
 `scan` ve `paper` modları için **anahtar gerekmez** (fiyat verisi herkese açık).
 Anahtar sadece gerçek emir göndermek için lazım.
 
-### 2a. Önce TESTNET (sahte para — burada başla)
+### Testnet gerçekten gerekli mi?
+
+**Çoğu durumda hayır.** `mode: paper` zaten hiç emir göndermez, yani gerçek piyasa
+verisiyle çalışmak tamamen güvenlidir ve **gerçek** veri verir. Testnet ayrı bir
+sistemdir: kendi API anahtarlarını ister ve fiyatları gerçek piyasayı yansıtmaz.
+
+Testnet'i sadece **gerçek emir gönderme akışını** denemek istediğinde aç (`mode: live`
++ `testnet: true`). O zaman aşağıdaki adımları izle.
+
+### 2a. Testnet anahtarı (sadece emir denemesi için)
 
 1. https://testnet.binancefuture.com adresine gir.
 2. GitHub veya Google hesabınla giriş yap.
 3. Sayfanın altındaki **API Key** bölümünden `API Key` ve `Secret Key`'i kopyala.
 4. Testnet hesabına otomatik sahte USDT yüklenir.
-5. `config.yaml` içinde `testnet: true` kalsın.
+5. `ayarla.bat` çalıştırıp "Testnet kullanilsin mi" sorusuna **evet** de.
+
+> Testnet anahtarı ile gerçek hesabın anahtarı **birbirinin yerine geçmez.** Gerçek
+> anahtarı testnet'e verirsen `Invalid API-key` hatası alırsın — anahtar bozuk değildir,
+> yanlış sisteme gönderilmiştir.
 
 ### 2b. Sonra gerçek hesap
 
@@ -141,7 +155,7 @@ Anahtar sadece gerçek emir göndermek için lazım.
    * ❌ **Enable Withdrawals** — bunu **ASLA açma**. Bot para çekmez; açarsan anahtarı
      çalan kişi paranı çeker.
    * ✅ **Restrict access to trusted IPs only** → PC'nin IP'sini ekle (çok önemli).
-5. `config.yaml` içinde `testnet: false` yap.
+5. `ayarla.bat` ile "Testnet kullanilsin mi" sorusuna **hayir** de.
 
 ### 2c. Anahtarı nereye yazacaksın
 
@@ -166,6 +180,7 @@ export BINANCE_API_SECRET="buraya_secret_key"
 ## 3. Komutlar
 
 ```cmd
+python run.py ayarla      :: ayarları soru-cevap ile yaz (elle YAML düzenlemeden)
 python run.py doctor      :: ayarları, bağlantıyı ve ücret mantığını kontrol et
 python run.py selftest    :: borsaya bağlanmadan kodu test et
 python run.py backtest    :: geçmiş veriyle stratejiyi test et
@@ -184,6 +199,7 @@ python run.py backtest --symbols BTC/USDT ETH/USDT SOL/USDT --bars 4000 --trades
 python run.py fetch --symbols SOL/USDT AVAX/USDT LINK/USDT --bars 6000
 python run.py backtest --csv data\*.csv                 :: indirdiğin veriyle
 python run.py scan --symbols BTC/USDT --mode signal
+python run.py ayarla --equity 3 --no-testnet --mode paper   :: soru sormadan
 python run.py run --mode signal                         :: sadece uyarı ver, işlem açma
 ```
 
@@ -377,8 +393,9 @@ bot/
   datafeed.py     CSV okuma/yazma ve sentetik veri
   state.py        kalıcı durum (JSON)
   notifier.py     CMD çıktısı, log, ses, opsiyonel Telegram
+  configedit.py   ayarları yorumları bozmadan değiştirme
   cli.py          komut satırı
-tests/           101 test
+tests/           135 test
 ```
 
 Backtest, canlı botla **aynı** strateji ve risk kodunu çağırır — bu yüzden test sonucu

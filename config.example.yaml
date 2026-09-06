@@ -8,7 +8,9 @@
 exchange:
   id: binance              # ccxt borsa kimligi (binance, bybit, okx, ...)
   market_type: future      # future = USDT vadeli (kaldirac var) | spot
-  testnet: true            # true = Binance Futures Testnet (sahte para). ILK ONCE BOYLE CALISTIR.
+  testnet: false           # true = Binance'in AYRI testnet sistemi (sahte para, ayri API anahtari,
+                           # fiyat verisi gercek piyasa DEGIL). Sadece gercek emir denemek icin ac.
+                           # paper modunda zaten emir gonderilmez; false birak.
   quote: USDT              # islem parasi
   # Anahtarlari BURAYA YAZMA. Ortam degiskeni kullan (README'ye bak):
   #   BINANCE_API_KEY / BINANCE_API_SECRET
@@ -81,7 +83,7 @@ fees:
   min_profit_to_fee_ratio: 4.0  # hedef kar, toplam masrafin en az 4 kati olmali
 
 execution:
-  mode: paper              # signal = sadece uyari | paper = sanal islem | live = GERCEK PARA
+  mode: paper              # signal = sadece uyari | paper = sanal islem (GERCEK EMIR YOK) | live = GERCEK PARA
   poll_seconds: 300        # kac saniyede bir kontrol
   confirm_on_closed_bar: true  # sadece KAPANMIS bar ile islem ac (tekrar cizim yok)
   min_notional_usd: 5.0    # borsanin izin verdigi en kucuk pozisyon buyuklugu
