@@ -22,6 +22,8 @@ class FakeExchange:
             htf["closed"] = True
             self.data[sym] = {timeframe: ltf, trend_tf: htf}
         self.cursor = 400          # gorunur bar sayisi
+        self.amount_step = 1e-8    # miktar adimi
+        self.min_notional_value = 5.0
         self.orders = []
 
     def _visible(self, symbol, timeframe):
@@ -45,7 +47,12 @@ class FakeExchange:
         return 20.0
 
     def min_notional(self, symbol):
-        return 5.0
+        return self.min_notional_value
+
+    def round_amount(self, symbol, amount):
+        """Borsanin miktar adimi (varsayilan cok ince; testler degistirebilir)."""
+        step = self.amount_step
+        return (amount // step) * step
 
     def last_price(self, symbol):
         return float(self._visible(symbol, "4h")["close"].iloc[-1])
@@ -173,3 +180,37 @@ def test_closed_trades_balance_the_equity(cfg):
         pytest.skip("islem kapanmadi")
     expected = 1000.0 + sum(t["net_usd"] for t in trades)
     assert engine.state.equity == pytest.approx(expected, rel=1e-9)
+
+
+def test_positions_the_exchange_cannot_size_are_rejected(cfg):
+    """Miktar adimi kaba oldugunda kucuk pozisyon sinyal olarak bile gosterilmemeli."""
+    engine, ex = build(cfg)
+    ex.amount_step = 1e-8
+    for _ in range(300):
+        plans = engine.scan()
+        if plans:
+            break
+        ex.advance()
+    if not plans:
+        pytest.skip("bu veride sinyal olusmadi")
+
+    ex.amount_step = 1_000_000.0        # her pozisyon sifira yuvarlanir
+    assert engine.scan() == []
+
+
+def test_rounded_position_below_exchange_minimum_is_rejected(cfg):
+    engine, ex = build(cfg)
+    plan = None
+    for _ in range(300):
+        found = engine.scan()
+        if found:
+            plan = found[0][0]
+            break
+        ex.advance()
+    if plan is None:
+        pytest.skip("bu veride sinyal olusmadi")
+
+    assert engine._not_executable(plan) is None      # normalde acilabilir
+    ex.min_notional_value = plan.notional * 2         # borsa alt sinirini yukseltti
+    reason = engine._not_executable(plan)
+    assert reason is not None and "alt siniri" in reason

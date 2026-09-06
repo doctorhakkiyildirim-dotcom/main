@@ -101,3 +101,42 @@ def test_empty_input_is_handled(cfg):
     res = run_backtest({}, cfg, start_equity=100.0)
     assert res.summary()["count"] == 0
     assert res.end_equity == 100.0
+
+
+def test_saved_csv_can_be_read_back_identically(tmp_path):
+    """fetch -> backtest --csv zinciri veriyi bozmadan tasimali."""
+    from bot.datafeed import load_csv, save_csv
+
+    original = synthetic(bars=300, timeframe="4h", seed=9)
+    original.loc[original.index[-1], "closed"] = False   # yarim son bar
+
+    path = tmp_path / "ALT_USDT_4h.csv"
+    written = save_csv(original, path)
+    assert written == 299, "kapanmamis bar yazilmamali"
+
+    reloaded = load_csv(path, "4h")
+    assert len(reloaded) == 299
+    for col in ("open", "high", "low", "close", "volume"):
+        assert reloaded[col].to_numpy() == pytest.approx(
+            original[col].to_numpy()[:299], rel=1e-9
+        )
+    assert (reloaded["ts"].to_numpy() == original["ts"].to_numpy()[:299]).all()
+
+
+def test_backtest_runs_on_reloaded_csv(tmp_path, cfg):
+    """Diskten okunan veriyle backtest, bellekteki veriyle ayni sonucu vermeli."""
+    from bot.datafeed import load_csv, save_csv
+
+    raw = synthetic(bars=2500, timeframe="4h", seed=4)
+    path = tmp_path / "ALT_USDT_4h.csv"
+    save_csv(raw, path)
+
+    from_disk = build_features(load_csv(path, "4h"), resample(load_csv(path, "4h"), "1d"),
+                               cfg["strategy"])
+    closed = raw[raw["closed"].astype(bool)].reset_index(drop=True)
+    in_memory = build_features(closed, resample(closed, "1d"), cfg["strategy"])
+
+    disk_res = run_backtest({"ALT/USDT": from_disk}, cfg, start_equity=100.0)
+    mem_res = run_backtest({"ALT/USDT": in_memory}, cfg, start_equity=100.0)
+    assert disk_res.summary()["count"] == mem_res.summary()["count"]
+    assert disk_res.end_equity == pytest.approx(mem_res.end_equity, rel=1e-6)

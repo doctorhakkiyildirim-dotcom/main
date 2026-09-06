@@ -239,12 +239,22 @@ class Exchange:
         return float(total or 0.0)
 
     def round_amount(self, symbol: str, amount: float) -> float:
-        """Miktari borsanin adim buyuklugune yuvarla (asagi)."""
-        return float(self.client.amount_to_precision(self.resolve_symbol(symbol), amount))
+        """Miktari borsanin adim buyuklugune yuvarla (asagi).
+
+        Pahali bir coini kucuk sermayeyle almaya calisirsan sonuc 0 cikabilir —
+        cagiran taraf bunu kontrol etmeli.
+        """
+        try:
+            return float(self.client.amount_to_precision(self.resolve_symbol(symbol), amount))
+        except ccxt.BaseError as exc:
+            raise ExchangeError(f"{symbol} miktar yuvarlanamadi: {exc}") from exc
 
     def round_price(self, symbol: str, price: float) -> float:
         """Fiyati borsanin tick buyuklugune yuvarla."""
-        return float(self.client.price_to_precision(self.resolve_symbol(symbol), price))
+        try:
+            return float(self.client.price_to_precision(self.resolve_symbol(symbol), price))
+        except ccxt.BaseError as exc:
+            raise ExchangeError(f"{symbol} fiyat yuvarlanamadi: {exc}") from exc
 
     def set_leverage(self, symbol: str, leverage: int) -> None:
         """Kaldiraci ayarla (vadeli piyasa)."""

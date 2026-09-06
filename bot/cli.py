@@ -14,7 +14,7 @@ from rich.table import Table
 from . import __version__
 from .backtest import BacktestResult, prepare_frames, run_backtest
 from .config import ConfigError, load_config, summary_lines
-from .datafeed import load_csv, resample, synthetic
+from .datafeed import load_csv, resample, save_csv, synthetic
 from .exchange import Exchange, ExchangeError
 from .risk import ExitEvent, min_notional_for_fee_ratio, round_fees
 from .state import State
@@ -281,6 +281,38 @@ def cmd_backtest(args) -> int:
     return 0
 
 
+def cmd_fetch(args) -> int:
+    """Gecmis mum verisini CSV olarak indir — sonra internetsiz backtest yapilir."""
+    cfg = load_config(args.config)
+    ex = Exchange(cfg)
+    timeframe = cfg["timeframes"]["signal"]
+    symbols = args.symbols or ex.discover_universe()[: args.top]
+    out_dir = Path(args.out)
+
+    console.print(f"[dim]{len(symbols)} parite, {timeframe}, {args.bars} bar -> {out_dir}/[/dim]")
+    saved = 0
+    for symbol in symbols:
+        try:
+            df = ex.fetch_ohlcv(symbol, timeframe, args.bars)
+        except ExchangeError as exc:
+            console.print(f"  [yellow]{symbol}: atlandi — {exc}[/yellow]")
+            continue
+        path = out_dir / f"{symbol.replace('/', '_')}_{timeframe}.csv"
+        rows = save_csv(df, path)
+        span = f"{df['ts'].iloc[0].date()} -> {df['ts'].iloc[-1].date()}"
+        console.print(f"  {symbol:<14} {rows:>5} bar  [{span}]  {path}")
+        saved += 1
+
+    if not saved:
+        console.print("[red]Hicbir parite indirilemedi.[/red]")
+        return 1
+    console.print(
+        f"\n[green]{saved} dosya kaydedildi.[/green] Simdi internetsiz test edebilirsin:\n"
+        f"  python run.py backtest --csv {out_dir}/*.csv"
+    )
+    return 0
+
+
 def cmd_selftest(args) -> int:
     """Borsaya baglanmadan tum zinciri sentetik veriyle dogrula."""
     cfg = load_config(args.config) if Path(args.config).exists() else None
@@ -355,6 +387,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--trades", type=int, default=0, help="son N islemi listele")
     p.add_argument("--no-compound", action="store_true", help="sabit pozisyon boyutu")
     p.set_defaults(func=cmd_backtest)
+
+    p = sub.add_parser("fetch", help="gecmis veriyi CSV olarak indir")
+    p.add_argument("--symbols", nargs="*")
+    p.add_argument("--top", type=int, default=10, help="auto listeden kac parite")
+    p.add_argument("--bars", type=int, default=6000, help="indirilecek bar sayisi")
+    p.add_argument("--out", default="data", help="cikti klasoru")
+    p.set_defaults(func=cmd_fetch)
 
     p = sub.add_parser("selftest", help="borsasiz, sentetik veriyle kod testi")
     p.add_argument("--bars", type=int, default=3000)

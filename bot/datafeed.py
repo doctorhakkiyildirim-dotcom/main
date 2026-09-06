@@ -54,6 +54,20 @@ def load_csv(path: str | Path, timeframe: str) -> pd.DataFrame:
     return _finalise(out, timeframe)
 
 
+def save_csv(df: pd.DataFrame, path: str | Path, closed_only: bool = True) -> int:
+    """Mum verisini `load_csv`in okuyabilecegi bicimde diske yaz.
+
+    Varsayilan olarak yalnizca KAPANMIS barlar yazilir; yarim bar backtest
+    sonucunu carpitir.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    out = df[df["closed"].astype(bool)] if closed_only and "closed" in df else df
+    out = out[["ts", *REQUIRED]].rename(columns={"ts": "timestamp"})
+    out.to_csv(path, index=False)
+    return len(out)
+
+
 def resample(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
     """Kucuk zaman dilimini buyuge cevir (or. 4h -> 1d)."""
     rule = pd.Timedelta(milliseconds=timeframe_ms(timeframe))

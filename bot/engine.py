@@ -117,10 +117,41 @@ class Engine:
             if not plan.ok:
                 self.note.rejected(symbol, plan.reject_reason)
                 continue
+            blocked = self._not_executable(plan)
+            if blocked:
+                self.note.rejected(symbol, blocked)
+                continue
             results.append((plan, df))
 
         results.sort(key=lambda item: item[0].score, reverse=True)
         return results
+
+    def _not_executable(self, plan: TradePlan) -> str | None:
+        """Borsanin miktar adimi bu pozisyonu engelliyor mu — engelliyorsa sebebi.
+
+        Kucuk sermayeyle pahali bir coin alinmaya calisildiginda miktar
+        yuvarlaninca sifira duser. Sinyali gostermeden once elemek gerekir.
+        """
+        try:
+            qty = self.ex.round_amount(plan.symbol, plan.qty)
+        except ExchangeError:
+            return None      # yuvarlama bilgisi yoksa yolu kapatma
+        if qty <= 0:
+            return (
+                f"{plan.entry:.6g} fiyatinda {plan.notional:.2f} USDT'lik pozisyon, "
+                f"borsanin miktar adiminin altinda kaliyor — bu sermayeyle acilamaz"
+            )
+        floor = max(
+            float(self.cfg["execution"]["min_notional_usd"]),
+            float(self.ex.min_notional(plan.symbol)),
+        )
+        rounded_notional = qty * plan.entry
+        if rounded_notional < floor:
+            return (
+                f"miktar yuvarlaninca pozisyon {rounded_notional:.2f} USDT'ye dustu, "
+                f"borsanin alt siniri {floor:.2f} USDT"
+            )
+        return None
 
     # ------------------------------------------------------------ pozisyon
 

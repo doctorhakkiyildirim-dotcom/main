@@ -24,11 +24,13 @@ batıran şeylerin çoğu bunlar. Ama piyasa yatay giderse bu bot da para kaybed
 
 Üç şeyi baştan söylüyorum, çünkü sonra sürpriz olmasın:
 
-**1) 5 dolar ile başlamak matematiksel olarak çok zor.** Sebebi risk iştahın değil,
-borsanın alt limitleri. Binance vadeli işlemlerde en küçük pozisyon ~5 USDT'dir. 5 USDT
-sermayen varsa, tek bir pozisyon zaten tüm hesabın demektir; %7'lik normal bir stop bile
-sermayenin %7'sinden fazlasını götürür ve manevra alanın kalmaz. Bot bunu sana yalan
-söylemek yerine ekrana yazar ve o işlemi açmaz.
+**1) Çok küçük sermaye işlem yapabilir, ama hata payı bırakmaz.** Binance vadelide en
+küçük pozisyon 5 USDT'dir; 3 USDT sermaye ile bot 3–9x kaldıraç kullanarak 6–24 USDT'lik
+pozisyon açabilir ve işlem başına 0.60 USDT (%20) riske eder. Yani **teknik olarak
+çalışır.** Sorun şu: art arda üç kayıpta sermayenin yarısı gider ve toparlanma alanın
+kalmaz. Ayrıca pahalı coinlerde (BTC gibi) miktar, borsanın adım büyüklüğüne
+yuvarlandığında sıfıra düşer — bot bunu tespit edip o sinyali eler. **Bu yüzden küçük
+sermayede altcoin'lerle çalışmak zorundasın.**
 
 **2) "İşlem başına 3 dolar ücret" rakamı normal değil ve sistemi tek başına öldürür.**
 Binance USDT vadelide taker komisyonu **%0.05**'tir. 3 dolar komisyon ödemen için
@@ -43,9 +45,15 @@ Bu 3 dolar büyük ihtimalle şunlardan biri:
 | **Para çekme (withdraw)** ücreti | Sadece çekerken | İşlemle ilgisi yok, biriktir sonra çek |
 | Aracı kurum / kopya-işlem platformu sabit ücret alıyor | Her işlemde sabit 3 $ | **Binance'e doğrudan geç**, yoksa bu iş yürümez |
 
-Bot bu durumu ölçüyor: `config.yaml` içine `fees.flat_fee_usd: 3.0` yazarsan, sana
-"bu ücret yapısıyla anlamlı en küçük pozisyon **~116 USDT**" der ve altındaki işlemleri
-reddeder. Bu bir arıza değil, seni korumasıdır.
+**En olası cevap birinci satır.** 500 dolarlık hesapta 9x kaldıraçla ~4.000 USDT'lik
+pozisyon açarsan, tek yönde komisyon 4000 × %0.05 = **2 dolar**; gidiş-dönüş 4 dolar.
+Yani gördüğün 3 dolar, sabit bir ücret değil, büyük hacmin **yüzdesi** olma ihtimali
+yüksek. Öyleyse sorun yok — oran her zaman %0.05, pozisyon küçüldükçe ücret de küçülür.
+
+Bot her iki durumu da doğru işliyor: `config.yaml` içine `fees.flat_fee_usd: 3.0`
+yazarsan (yani ücret gerçekten sabitse), sana "bu ücret yapısıyla anlamlı en küçük
+pozisyon **~116 USDT**" der ve altındaki işlemleri reddeder. Sabit değilse
+`flat_fee_usd: 0.0` bırak, normal %0.05 hesabı yapar.
 
 **3) Bu bot varsayılan olarak GERÇEK PARA KULLANMAZ.** `paper` (kâğıt) modunda başlar,
 sanal işlem yapar. Gerçek paraya geçmek için ayarı bilerek değiştirmen ve onay yazman
@@ -129,6 +137,7 @@ export BINANCE_API_SECRET="buraya_secret_key"
 python run.py doctor      :: ayarları, bağlantıyı ve ücret mantığını kontrol et
 python run.py selftest    :: borsaya bağlanmadan kodu test et
 python run.py backtest    :: geçmiş veriyle stratejiyi test et
+python run.py fetch       :: geçmiş veriyi CSV indir (sonra internetsiz test)
 python run.py scan        :: tek seferlik tarama, sinyalleri göster
 python run.py run         :: sürekli çalıştır (asıl kullanım — PC'yi açık bırak)
 python run.py status      :: açık pozisyonlar ve performans
@@ -140,10 +149,24 @@ Faydalı seçenekler:
 
 ```cmd
 python run.py backtest --symbols BTC/USDT ETH/USDT SOL/USDT --bars 4000 --trades 20
-python run.py backtest --csv veri\BTCUSDT_4h.csv        :: kendi verinle
+python run.py fetch --symbols SOL/USDT AVAX/USDT LINK/USDT --bars 6000
+python run.py backtest --csv data\*.csv                 :: indirdiğin veriyle
 python run.py scan --symbols BTC/USDT --mode signal
 python run.py run --mode signal                         :: sadece uyarı ver, işlem açma
 ```
+
+### İnternetsiz / tekrarlı backtest
+
+Veriyi bir kez indir, sonra istediğin kadar parametre deneyerek offline test et:
+
+```cmd
+python run.py fetch --symbols SOL/USDT AVAX/USDT LINK/USDT DOGE/USDT XRP/USDT ^
+                    ADA/USDT MATIC/USDT DOT/USDT ATOM/USDT NEAR/USDT --bars 6000
+python run.py backtest --csv data\*.csv --equity 3
+```
+
+`data/` klasöründeki CSV'ler sade OHLCV'dir (`timestamp,open,high,low,close,volume`);
+paylaşması güvenlidir, hesap bilgisi içermez.
 
 ### Önerilen sıra
 
@@ -296,6 +319,7 @@ pause
 | `Masraf cok agir: ...` | Beklenen davranış. `fees.flat_fee_usd`'yi düşür ya da sermayeyi artır |
 | `Sermaye yetersiz` | Borsanın min pozisyon limitinin altındasın |
 | `Gereken kaldirac Nx, guvenli tavan Mx` | Stop çok geniş. `atr_stop_mult` düşür ya da `max_stop_pct` daralt |
+| `miktar adiminin altinda kaliyor` | Coin sermayene göre çok pahalı (BTC vb.). Ucuz altcoin'lerle çalış |
 | Hiç sinyal gelmiyor | Normal. `min_score`'u 50'ye indir veya `--mode signal` ile izle |
 | `API anahtari gerekli` | `live` modu için ortam değişkenlerini ayarla |
 | `Bot durduruldu: gunluk zarar` | Koruma devrede. `python run.py resume` |
@@ -316,11 +340,11 @@ bot/
   exchange.py     ccxt sarmalayıcı (veri + emirler)
   engine.py       ana döngü
   backtest.py     geçmişe dönük test (aynı strateji kodu)
-  datafeed.py     CSV ve sentetik veri
+  datafeed.py     CSV okuma/yazma ve sentetik veri
   state.py        kalıcı durum (JSON)
   notifier.py     CMD çıktısı, log, ses, opsiyonel Telegram
   cli.py          komut satırı
-tests/            97 test
+tests/           101 test
 ```
 
 Backtest, canlı botla **aynı** strateji ve risk kodunu çağırır — bu yüzden test sonucu
