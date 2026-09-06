@@ -28,6 +28,15 @@ RETRYABLE = (
     ccxt.RateLimitExceeded,
 )
 
+# Bilgisayarin saati borsanin saatiyle uyusmadiginda donen hata kodlari
+CLOCK_SKEW_CODES = ("-1021", "-1131", "-5028", "-4188")
+
+
+def is_clock_skew(error: BaseException) -> bool:
+    """Hata, bilgisayar saatinin kaymasindan mi kaynaklaniyor."""
+    text = str(error)
+    return any(code in text for code in CLOCK_SKEW_CODES) or "recvWindow" in text
+
 
 class ExchangeError(Exception):
     """Borsa katmani hatasi."""
@@ -90,6 +99,13 @@ class Exchange:
                 # Sadece ihtiyac duyulan piyasa turunu yukle: hem hizli, hem de
                 # vadeli calisirken gereksiz spot ucuna istek atilmaz.
                 "fetchMarkets": ["linear"] if is_future else ["spot"],
+                # ccxt, load_markets() sirasinda ONCE fetch_currencies() cagirir ve
+                # API anahtari tanimliysa bu IMZALI bir istektir. Bota para birimi
+                # meta verisi hic gerekmiyor; kapatinca herkese acik veri, anahtar
+                # varken de anahtarsizmis gibi calisir.
+                "fetchCurrencies": False,
+                # Saat farki toleransi (Binance varsayilani 5 sn, biz genis tutuyoruz)
+                "recvWindow": 10_000,
                 # ccxt, Binance vadeli testnet'ini varsayilan olarak engelliyor.
                 # Testnet'te emir denemek isteyenler icin bilincli olarak aciyoruz.
                 "disableFuturesSandboxWarning": True,
@@ -105,6 +121,38 @@ class Exchange:
                 raise ExchangeError(f"{ex_cfg['id']} testnet desteklemiyor.")
             self.client.set_sandbox_mode(True)
         self._markets: dict[str, Any] | None = None
+        self._time_synced = False
+        self.time_offset_ms = 0.0
+
+    # ------------------------------------------------------------------ saat
+
+    def sync_time(self) -> float:
+        """Borsanin saatiyle arasindaki farki olc ve sonraki isteklere uygula.
+
+        Windows'ta saat birkac saniye kayabilir; Binance 1 saniyeden fazla
+        ILERI olan istekleri reddeder (-1021). ccxt bu farki telafi edebilir,
+        yeter ki bir kez olculsun.
+        """
+        self.client.load_time_difference()
+        self._time_synced = True
+        self.time_offset_ms = float(self.client.options.get("timeDifference") or 0.0)
+        return self.time_offset_ms
+
+    def _call(self, fn, *args, **kwargs):
+        """Borsa cagrisi — saat kaymasinda saati esitleyip bir kez daha dener."""
+        try:
+            return retry(fn, *args, **kwargs)
+        except ExchangeError as exc:
+            if self._time_synced or not is_clock_skew(exc):
+                raise
+            try:
+                self.sync_time()
+            except (ccxt.BaseError, OSError) as sync_exc:
+                raise ExchangeError(
+                    f"Bilgisayarinin saati borsanin saatiyle uyusmuyor ve "
+                    f"duzeltilemedi: {sync_exc}"
+                ) from exc
+            return retry(fn, *args, **kwargs)
 
     # ---------------------------------------------------------------- piyasa
 
@@ -112,7 +160,7 @@ class Exchange:
     def markets(self) -> dict[str, Any]:
         """Piyasa listesini bir kez yukle ve onbellekte tut."""
         if self._markets is None:
-            self._markets = retry(self.client.load_markets)
+            self._markets = self._call(self.client.load_markets)
         return self._markets
 
     def resolve_symbol(self, symbol: str) -> str:
@@ -150,14 +198,14 @@ class Exchange:
         """Istenen bar sayisina ulasana kadar ileri dogru sayfala."""
         per_call = min(limit, self.MAX_BARS_PER_CALL)
         if limit <= per_call:
-            return retry(self.client.fetch_ohlcv, market_symbol, timeframe, None, per_call)
+            return self._call(self.client.fetch_ohlcv, market_symbol, timeframe, None, per_call)
 
         step = timeframe_ms(timeframe)
         now_ms = self.client.milliseconds()
         since = now_ms - limit * step
         rows: list = []
         while since < now_ms:
-            chunk = retry(self.client.fetch_ohlcv, market_symbol, timeframe, since, per_call)
+            chunk = self._call(self.client.fetch_ohlcv, market_symbol, timeframe, since, per_call)
             if not chunk:
                 break
             rows.extend(chunk)
@@ -194,7 +242,7 @@ class Exchange:
 
     def last_price(self, symbol: str) -> float:
         """Anlik fiyat."""
-        ticker = retry(self.client.fetch_ticker, self.resolve_symbol(symbol))
+        ticker = self._call(self.client.fetch_ticker, self.resolve_symbol(symbol))
         price = ticker.get("last") or ticker.get("close")
         if price is None:
             raise ExchangeError(f"{symbol} icin fiyat alinamadi.")
@@ -206,7 +254,7 @@ class Exchange:
         if uni["mode"] == "manual":
             return [s for s in uni["manual_symbols"] if s not in set(uni["exclude"])]
 
-        tickers = retry(self.client.fetch_tickers)
+        tickers = self._call(self.client.fetch_tickers)
         excluded = set(uni["exclude"])
         rows: list[tuple[str, float]] = []
         for sym, tk in tickers.items():
@@ -234,7 +282,7 @@ class Exchange:
 
     def fetch_equity(self) -> float:
         """Hesaptaki kullanilabilir teminat (USDT)."""
-        bal = retry(self.client.fetch_balance)
+        bal = self._call(self.client.fetch_balance)
         total = (bal.get("total") or {}).get(self.quote)
         return float(total or 0.0)
 
@@ -262,7 +310,7 @@ class Exchange:
             return
         capped = max(1, min(int(leverage), int(self.max_leverage(symbol))))
         try:
-            retry(self.client.set_leverage, capped, self.resolve_symbol(symbol))
+            self._call(self.client.set_leverage, capped, self.resolve_symbol(symbol))
         except ExchangeError as exc:
             raise ExchangeError(f"{symbol} kaldirac ayarlanamadi: {exc}") from exc
 
@@ -293,7 +341,7 @@ class Exchange:
     def cancel_all(self, symbol: str) -> None:
         """Bu paritedeki tum acik emirleri iptal et."""
         try:
-            retry(self.client.cancel_all_orders, self.resolve_symbol(symbol))
+            self._call(self.client.cancel_all_orders, self.resolve_symbol(symbol))
         except ExchangeError:
             pass  # acik emir yoksa borsa hata dondurebilir — sorun degil
 
@@ -301,7 +349,7 @@ class Exchange:
         """Borsadaki gercek acik pozisyon (varsa)."""
         if self.market_type != "future":
             return None
-        positions = retry(self.client.fetch_positions, [self.resolve_symbol(symbol)])
+        positions = self._call(self.client.fetch_positions, [self.resolve_symbol(symbol)])
         for pos in positions:
             contracts = float(pos.get("contracts") or 0)
             if not math.isclose(contracts, 0.0, abs_tol=1e-12):

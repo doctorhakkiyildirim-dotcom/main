@@ -17,7 +17,7 @@ from .backtest import BacktestResult, prepare_frames, run_backtest
 from .config import ConfigError, load_config, summary_lines
 from .configedit import ConfigEditError, apply_changes, read_scalar
 from .datafeed import load_csv, resample, save_csv, synthetic
-from .exchange import Exchange, ExchangeError
+from .exchange import Exchange, ExchangeError, is_clock_skew
 from .risk import ExitEvent, min_notional_for_fee_ratio, round_fees
 from .state import State
 from .strategy import build_features
@@ -302,8 +302,20 @@ def cmd_doctor(args) -> int:
             console.print(f"   Son bar: {df['ts'].iloc[-1]} (kapandi: {bool(df['closed'].iloc[-1])})")
     except ExchangeError as exc:
         console.print(f"   [red]Baglanti hatasi:[/red] {exc}")
-        console.print("   Internet/VPN veya borsa erisimini kontrol et.")
+        if is_clock_skew(exc):
+            for line in _clock_skew_help():
+                console.print(f"   {line}")
+        else:
+            console.print("   Internet/VPN veya borsa erisimini kontrol et.")
         return 1
+
+    if ex.time_offset_ms:
+        console.print(
+            f"   [yellow]Bilgisayarinin saati {ex.time_offset_ms / 1000:+.1f} saniye "
+            f"kaymis — bot telafi etti, ama asagidaki adimla kalici duzelt.[/yellow]"
+        )
+        for line in _clock_skew_help():
+            console.print(f"   {line}")
 
     console.print("\n[bold]4) API anahtari[/bold]")
     mode = cfg["execution"]["mode"]
@@ -331,9 +343,25 @@ def cmd_doctor(args) -> int:
     return 0
 
 
+def _clock_skew_help() -> list[str]:
+    """Bilgisayar saati kaydiginda ne yapilacagi."""
+    return [
+        "[bold]Sebep:[/bold] bilgisayarinin saati Binance'in saatiyle uyusmuyor.",
+        "Binance, 1 saniyeden fazla ILERI olan istekleri reddeder.",
+        "[bold]Windows'ta duzeltmek icin:[/bold]",
+        "  Ayarlar > Saat ve Dil > Tarih ve saat  ->  'Simdi esitle' butonuna bas",
+        "  ('Saati otomatik ayarla' da acik olsun.)",
+        "Hizli yol: yonetici olarak komut istemi ac ve sunu calistir:",
+        "  [bold]w32tm /resync[/bold]   (calismazsa once: net start w32time)",
+    ]
+
+
 def _api_key_hints(cfg: dict, error: str) -> list[str]:
     """Anahtar hatasinin en olasi sebebini adres goster."""
     hints: list[str] = []
+    if is_clock_skew(Exception(error)):
+        return _clock_skew_help()
+
     key_error = "-2015" in error or "Invalid API-key" in error
 
     if key_error and cfg["exchange"]["testnet"]:

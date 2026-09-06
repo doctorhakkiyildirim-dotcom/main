@@ -79,6 +79,7 @@ Depoyu indirdikten sonra klasördeki dosyalara sırayla çift tıkla:
 |---|---|
 | `kur.bat` | Python'u bulur, sanal ortamı kurar, kütüphaneleri yükler, sonunda ayar sorularını sorar |
 | `ayarla.bat` | Ayarları soru-cevap ile değiştirir — `config.yaml`'ı elle açmana gerek yok |
+| `saati-duzelt.bat` | Bilgisayar saatini Binance ile eşitler (yönetici olarak çalıştır) |
 | `ayarlari-kontrol-et.bat` | Ayarları, borsa bağlantısını ve API anahtarını denetler |
 | `veri-indir.bat` | Backtest için geçmiş veriyi `data/` klasörüne indirir |
 | `test-et.bat` | İndirilen veriyle stratejiyi test eder |
@@ -372,6 +373,7 @@ pause
 |---|---|
 | `config.yaml bulunamadi` | `copy config.example.yaml config.yaml` |
 | `Baglanti hatasi` | İnternet, güvenlik duvarı veya bölge kısıtı. Binance erişimini kontrol et |
+| `-1021 Timestamp ... ahead of the server's time` | **Bilgisayarın saati ileride.** API anahtarı veya IP ile ilgisi yok. `saati-duzelt.bat` (yönetici) çalıştır. Bot farkı otomatik telafi etmeye de çalışır |
 | `Masraf cok agir: ...` | Beklenen davranış. `fees.flat_fee_usd`'yi düşür ya da sermayeyi artır |
 | `Sermaye yetersiz` | Borsanın min pozisyon limitinin altındasın |
 | `Gereken kaldirac Nx, guvenli tavan Mx` | Stop çok geniş. `atr_stop_mult` düşür ya da `max_stop_pct` daralt |
@@ -403,7 +405,7 @@ bot/
   notifier.py     CMD çıktısı, log, ses, opsiyonel Telegram
   configedit.py   ayarları yorumları bozmadan değiştirme
   cli.py          komut satırı
-tests/           138 test
+tests/           145 test
 ```
 
 Backtest, canlı botla **aynı** strateji ve risk kodunu çağırır — bu yüzden test sonucu

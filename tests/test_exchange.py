@@ -130,3 +130,94 @@ def test_paging_stops_when_history_runs_out():
     rows = ex._fetch_ohlcv_paged("X", "4h", 5000)
     assert 0 < len(rows) <= 1200
     assert ex.client.calls < 10, "veri bitince donguden cikmali"
+
+
+# --------------------------------------------------- saat kaymasi (-1021)
+
+def test_clock_skew_errors_are_recognised():
+    from bot.exchange import is_clock_skew
+
+    skew = '{"code":-1021,"msg":"Timestamp for this request was 1000ms ahead"}'
+    assert is_clock_skew(Exception(skew))
+    assert is_clock_skew(Exception("recvWindow"))
+    assert not is_clock_skew(Exception('{"code":-2015,"msg":"Invalid API-key"}'))
+    assert not is_clock_skew(Exception("baglanti koptu"))
+
+
+class _SkewedClient:
+    """Saat esitlenene kadar -1021 doner."""
+
+    def __init__(self):
+        self.options = {}
+        self.calls = 0
+        self.synced = False
+
+    def load_time_difference(self):
+        self.synced = True
+        self.options["timeDifference"] = -1500
+
+    def work(self):
+        self.calls += 1
+        if not self.synced:
+            raise ccxt.BadRequest('binance {"code":-1021,"msg":"Timestamp ahead"}')
+        return "tamam"
+
+
+def skew_exchange():
+    ex = Exchange.__new__(Exchange)
+    ex.client = _SkewedClient()
+    ex._time_synced = False
+    ex.time_offset_ms = 0.0
+    return ex
+
+
+def test_clock_skew_is_fixed_automatically_and_the_call_succeeds():
+    ex = skew_exchange()
+    assert ex._call(ex.client.work) == "tamam"
+    assert ex.client.synced, "saat esitlenmis olmali"
+    assert ex.time_offset_ms == -1500
+
+
+def test_time_is_synced_only_once_per_session():
+    ex = skew_exchange()
+    ex._call(ex.client.work)
+    before = ex.client.calls
+    ex.client.synced = False        # borsa yine -1021 dondurursa
+    with pytest.raises(ExchangeError):
+        ex._call(ex.client.work)    # ikinci kez esitlemeye calismamali
+    assert ex.client.calls == before + 1
+
+
+def test_other_errors_are_not_treated_as_clock_skew():
+    ex = skew_exchange()
+
+    def refuses():
+        raise ccxt.AuthenticationError("Invalid API-key")
+
+    with pytest.raises(ExchangeError, match="Invalid API-key"):
+        ex._call(refuses)
+    assert not ex.client.synced, "ilgisiz hatada saat esitlemeye kalkmamali"
+
+
+# ------------------------------------------- gizli (imzali) cagri yapilmamasi
+
+def test_currency_metadata_fetch_is_disabled():
+    """ccxt load_markets() icinde ONCE fetch_currencies() cagirir ve API anahtari
+    varsa bu IMZALI bir istektir. Bota gerekmiyor; acik kalirsa saat kaymasi
+    veya eksik sapi izni yuzunden PIYASA VERISI bile alinamaz."""
+    ex = Exchange(copy.deepcopy(DEFAULTS))
+    assert ex.client.options["fetchCurrencies"] is False
+
+
+def test_market_data_needs_no_signed_request_even_with_api_keys():
+    """Anahtar tanimliyken de veri yolu tamamen herkese acik kalmali."""
+    cfg = copy.deepcopy(DEFAULTS)
+    cfg["exchange"].update({"api_key": "x" * 16, "api_secret": "y" * 16})
+    ex = Exchange(cfg)
+    assert ex.client.options["fetchCurrencies"] is False
+    assert ex.client.fetch_currencies() == {}
+
+
+def test_receive_window_is_generous_enough_for_slow_machines():
+    ex = Exchange(copy.deepcopy(DEFAULTS))
+    assert ex.client.options["recvWindow"] >= 10_000
