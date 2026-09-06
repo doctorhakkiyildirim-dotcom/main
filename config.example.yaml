@@ -1,0 +1,98 @@
+# ==========================================================================
+#  SWING SIGNAL BOT — ornek yapilandirma
+#  Bu dosyayi "config.yaml" olarak kopyala ve kendine gore duzenle:
+#      cp config.example.yaml config.yaml      (Windows: copy ...)
+#  config.yaml .gitignore icinde — API anahtarlarin depoya gitmez.
+# ==========================================================================
+
+exchange:
+  id: binance              # ccxt borsa kimligi (binance, bybit, okx, ...)
+  market_type: future      # future = USDT vadeli (kaldirac var) | spot
+  testnet: true            # true = Binance Futures Testnet (sahte para). ILK ONCE BOYLE CALISTIR.
+  quote: USDT              # islem parasi
+  # Anahtarlari BURAYA YAZMA. Ortam degiskeni kullan (README'ye bak):
+  #   BINANCE_API_KEY / BINANCE_API_SECRET
+  # Yine de buraya yazmak istersen (onerilmez):
+  api_key: ""
+  api_secret: ""
+
+universe:
+  mode: auto               # auto = borsadaki en likit coinleri kendisi secer | manual
+  manual_symbols:          # mode: manual ise bu liste kullanilir
+    - BTC/USDT
+    - ETH/USDT
+    - SOL/USDT
+    - BNB/USDT
+  top_n_by_volume: 40      # auto modda taranacak coin sayisi
+  min_24h_volume_usd: 50000000   # 50M$ altindaki hacimli coinlere girme
+  exclude:                 # stablecoin ve istemedigin pariteler
+    - USDC/USDT
+    - FDUSD/USDT
+    - TUSD/USDT
+    - DAI/USDT
+
+timeframes:
+  signal: 4h               # sinyal grafigi (islem bu bara gore acilir)
+  trend: 1d                # ust zaman dilimi trend filtresi
+  history_bars: 400        # indikator hesabi icin cekilecek mum sayisi
+
+strategy:
+  ema_fast: 20
+  ema_slow: 50
+  ema_trend: 200
+  macd: [12, 26, 9]        # MACD hizli, yavas, sinyal
+  macd_cross_lookback: 3   # MACD kesisimi son N bar icinde olmali (taze sinyal)
+  rsi_period: 14
+  rsi_long_band: [45, 70]  # LONG icin RSI bu aralikta olmali (asiri alimda girme)
+  rsi_short_band: [30, 55] # SHORT icin
+  adx_period: 14
+  adx_min: 20              # ADX bunun altindaysa piyasa yatay -> islem yok
+  atr_period: 14
+  volume_ma: 20
+  min_volume_ratio: 0.8    # hacim, 20 barlik ortalamanin en az %80'i olmali
+  allow_long: true
+  allow_short: true
+  min_score: 60            # 0-100 sinyal kalite puani esigi
+
+risk:
+  equity_usd: 5.0          # baslangic sermayen
+  risk_per_trade_pct: 20.0 # islem basina riske edilecek sermaye yuzdesi
+  max_open_positions: 1    # 5$ ile ayni anda 1 pozisyon
+  margin_alloc_pct: 90.0   # bir pozisyona ayrilacak teminat (sermayenin %'si)
+  atr_stop_mult: 2.5       # stop = giris -/+ 2.5 x ATR
+  min_stop_pct: 2.0        # stop mesafesi en az %2 (gurultuye takilmasin)
+  max_stop_pct: 12.0       # stop mesafesi en fazla %12
+  take_profit_r: 3.0       # kar al = 3R (riskin 3 kati)
+  breakeven_at_r: 1.0      # 1R kara gecince stop'u girise cek (zararsiz)
+  trail_start_r: 1.0       # 1R'den sonra iz suren stop devreye girer
+  trail_atr_mult: 3.0      # iz suren stop = en yuksek/dusuk -/+ 3 x ATR
+  time_stop_bars: 42       # 42 x 4h = 7 gun. Bu surede ise yaramayan islemi kapat
+  time_stop_min_r: 0.3     # 7 gun sonunda 0.3R altindaysa cik
+  max_leverage: 10
+  liquidation_buffer: 0.6  # stop, likidasyon mesafesinin en fazla %60'i kadar olabilir
+  daily_max_loss_pct: 40.0 # gunde sermayenin %40'ini kaybedersen bot durur
+  cooldown_bars_after_loss: 6  # zararli islemden sonra ayni coinde 6 bar bekle
+
+fees:
+  taker_pct: 0.05          # Binance futures taker komisyonu (%)
+  maker_pct: 0.02
+  flat_fee_usd: 0.0        # Broker islem basina SABIT ucret aliyorsa (or. 3.0) buraya yaz
+  slippage_pct: 0.03       # tahmini kayma (%)
+  min_profit_to_fee_ratio: 4.0  # hedef kar, toplam masrafin en az 4 kati olmali
+
+execution:
+  mode: paper              # signal = sadece uyari | paper = sanal islem | live = GERCEK PARA
+  poll_seconds: 300        # kac saniyede bir kontrol
+  confirm_on_closed_bar: true  # sadece KAPANMIS bar ile islem ac (tekrar cizim yok)
+  min_notional_usd: 5.0    # borsanin izin verdigi en kucuk pozisyon buyuklugu
+
+notify:
+  console: true          # false yaparsan ekrana basmaz, sadece log dosyasina yazar
+  sound: true              # sinyal gelince CMD'de bip sesi
+  logfile: logs/signals.log
+  telegram:
+    enabled: false         # istersen sonra acarsin
+    bot_token: ""
+    chat_id: ""
+
+state_file: state/state.json
