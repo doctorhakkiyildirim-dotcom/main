@@ -354,6 +354,8 @@ pause
 | `miktar adiminin altinda kaliyor` | Coin sermayene göre çok pahalı (BTC vb.). Ucuz altcoin'lerle çalış |
 | Hiç sinyal gelmiyor | Normal. `min_score`'u 50'ye indir veya `--mode signal` ile izle |
 | `API anahtari gerekli` | `live` modu için ortam değişkenlerini ayarla |
+| `Invalid API-key, IP, or permissions` | En sık sebep: `testnet: true` iken **gerçek** Binance anahtarı kullanmak. Testnet'in kendi ayrı anahtarları vardır. `signal`/`paper` modunda bu hata engel değildir — o modlar anahtar kullanmaz |
+| Anahtar bir gün çalışıp ertesi gün çalışmıyor | Binance'te IP kısıtı var ve ev IP'n değişti. Yeni IP'yi listeye ekle |
 | `Bot durduruldu: gunluk zarar` | Koruma devrede. `python run.py resume` |
 | Testler | `pip install pytest && python -m pytest` |
 

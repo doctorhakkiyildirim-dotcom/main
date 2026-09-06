@@ -192,3 +192,32 @@ def test_missing_csv_tells_the_user_how_to_get_data(tmp_path):
 
     with pytest.raises(ConfigError, match="run.py fetch"):
         expand_csv_paths([str(tmp_path / "yok" / "*.csv")])
+
+
+# ------------------------------------------------------- API anahtari teshisi
+
+def test_testnet_key_mismatch_is_named_as_the_likely_cause():
+    """Gercek Binance anahtari + testnet = -2015. Kullanici bunu anlamali."""
+    from bot.cli import _api_key_hints
+
+    cfg = copy.deepcopy(DEFAULTS)
+    cfg["exchange"]["testnet"] = True
+    hints = " ".join(_api_key_hints(cfg, '{"code":-2015,"msg":"Invalid API-key, IP"}'))
+    assert "testnet" in hints.lower()
+    assert "testnet: false" in hints
+
+
+def test_mainnet_key_failure_points_at_permissions_and_ip():
+    from bot.cli import _api_key_hints
+
+    cfg = copy.deepcopy(DEFAULTS)
+    cfg["exchange"]["testnet"] = False
+    hints = " ".join(_api_key_hints(cfg, '{"code":-2015,"msg":"Invalid API-key, IP"}'))
+    assert "Enable Futures" in hints
+    assert "IP" in hints
+
+
+def test_unrelated_errors_get_no_misleading_hints():
+    from bot.cli import _api_key_hints
+
+    assert _api_key_hints(copy.deepcopy(DEFAULTS), "baglanti zaman asimi") == []

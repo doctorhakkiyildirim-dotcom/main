@@ -153,17 +153,55 @@ def cmd_doctor(args) -> int:
         return 1
 
     console.print("\n[bold]4) API anahtari[/bold]")
-    if cfg["exchange"]["api_key"]:
-        try:
-            console.print(f"   Bakiye: {ex.fetch_equity():.2f} {cfg['exchange']['quote']}")
-        except ExchangeError as exc:
-            console.print(f"   [red]Anahtar calismiyor:[/red] {exc}")
-            return 1
-    else:
+    mode = cfg["execution"]["mode"]
+    key_required = mode == "live"
+
+    if not cfg["exchange"]["api_key"]:
         console.print("   Anahtar yok — 'signal' ve 'paper' modlari icin gerekli degil.")
+    else:
+        try:
+            balance = ex.fetch_equity()
+            console.print(f"   [green]Calisiyor.[/green] Bakiye: {balance:.2f} {cfg['exchange']['quote']}")
+        except ExchangeError as exc:
+            level = "red" if key_required else "yellow"
+            console.print(f"   [{level}]Anahtar calismiyor:[/{level}] {exc}")
+            for hint in _api_key_hints(cfg, str(exc)):
+                console.print(f"   {hint}")
+            if key_required:
+                return 1
+            console.print(
+                f"   [dim]Su anki mod '{mode}' oldugu icin bu ENGEL DEGIL — "
+                f"bot fiyat verisiyle calismaya devam eder.[/dim]"
+            )
 
     console.print("\n[green]Kontroller tamamlandi.[/green]")
     return 0
+
+
+def _api_key_hints(cfg: dict, error: str) -> list[str]:
+    """Anahtar hatasinin en olasi sebebini adres goster."""
+    hints: list[str] = []
+    key_error = "-2015" in error or "Invalid API-key" in error
+
+    if key_error and cfg["exchange"]["testnet"]:
+        hints.append(
+            "[bold]En olasi sebep:[/bold] testnet acik ama GERCEK Binance anahtari kullaniyorsun."
+        )
+        hints.append(
+            "Testnet'in kendi ayri anahtarlari var (testnet.binancefuture.com). "
+            "Gercek hesabin anahtari orada gecmez."
+        )
+        hints.append(
+            "Gercek piyasada calisacaksan config.yaml icinde [bold]testnet: false[/bold] yap."
+        )
+    elif key_error:
+        hints.append("Kontrol et: anahtarda [bold]Enable Futures[/bold] izni acik mi?")
+        hints.append(
+            "Kontrol et: Binance'te IP kisiti varsa, bu bilgisayarin IP'si listede mi? "
+            "Ev internetinde IP degisebilir — degistiginde anahtar calismayi birakir."
+        )
+        hints.append("Anahtari yeni olusturduysan aktif olmasi birkac dakika surebilir.")
+    return hints
 
 
 def cmd_scan(args) -> int:
@@ -184,6 +222,7 @@ def cmd_scan(args) -> int:
 def cmd_run(args) -> int:
     """Surekli calisma."""
     engine = _engine(args)
+    _warn_if_testnet_data(engine.cfg)
     if not _confirm_live(engine.cfg, args.yes):
         return 1
     engine.note.banner(summary_lines(engine.cfg))
